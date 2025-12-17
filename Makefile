@@ -22,7 +22,7 @@ logs:
 
 # Run backend tests inside the container
 test:
-	docker compose exec backend go test ./...
+	cd backend && go test ./... -v
 
 # Open a shell inside the backend container
 backend-shell:

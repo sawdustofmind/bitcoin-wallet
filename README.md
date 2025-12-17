@@ -16,7 +16,7 @@ A simple Bitcoin wallet application built with Golang, React, PostgreSQL, and Bi
 
 - **Start everything**:
   ```bash
-  make up
+  make up-d
   ```
 
 - **Run Tests**:
@@ -44,6 +44,11 @@ A simple Bitcoin wallet application built with Golang, React, PostgreSQL, and Bi
 2. Access the application:
    - Frontend: [http://localhost:3000](http://localhost:3000)
    - Backend API: [http://localhost:8080](http://localhost:8080)
+
+3. Run fixtures with wallet activity:
+   ```bash
+   make regtest-activity
+   ```
 
 ## Configuration
 
