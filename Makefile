@@ -6,7 +6,7 @@ up:
 
 # Start all services in detached mode (background)
 up-d:
-	docker compose --env-file config.env up -d
+	docker compose --env-file config.env up -d --build
 
 # Stop and remove containers
 down:
@@ -31,4 +31,8 @@ backend-shell:
 # Clean up volumes (Warning: Deletes all wallet data)
 clean:
 	docker compose down -v
+
+# Generate regtest activity (mine blocks, send funds to your wallet)
+regtest-activity:
+	./scripts/regtest-activity.sh
 

@@ -2,6 +2,7 @@ package wallet
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/rpcclient"
+
 	"github.com/sawdustofmind/bitcoin-wallet/backend/config"
 )
 
@@ -42,7 +44,13 @@ func New(btcCfg config.BitcoinConfig, xpubStr string, db *sql.DB) (*Wallet, erro
 
 	walletName := "mywallet"
 	_, err = rootClient.CreateWallet(walletName, rpcclient.WithCreateWalletDisablePrivateKeys())
-	// Ignore error if it already exists (RPC error -4 usually)
+	if err != nil {
+		// Try to load it if create failed (likely exists)
+		_, loadErr := rootClient.LoadWallet(walletName)
+		if loadErr != nil {
+			log.Printf("Wallet might already be loaded or failed to load: %v", loadErr)
+		}
+	}
 
 	// Now create client pointing to the wallet
 	// Copy config and append path
@@ -120,15 +128,10 @@ func (w *Wallet) GetNewAddress() (string, error) {
 		return "", err
 	}
 
-	// 3. Import into bitcoind
-	// We use ImportAddress(address, label, rescan)
-	// Rescan can be slow, but for new addresses on regtest it's fast if we just started.
-	// Or use ImportMulti for better control.
-	// Let's use ImportAddress for simplicity.
-	err = w.client.ImportAddressRescan(addressStr, "", false) // false = no rescan? Or do we need rescan?
-	// If the address is new, no need to rescan the whole chain usually, but if funds were sent to it before we imported...
-	// Requirement says "Get Unused Address", implies it's new.
-	// But let's rescan false to be fast.
+	// 3. Import into bitcoind using importdescriptors (works with descriptor wallets)
+	// Format: addr(ADDRESS) for a single address descriptor
+	descriptor := fmt.Sprintf("addr(%s)", addressStr)
+	err = w.importDescriptor(descriptor)
 	if err != nil {
 		return "", fmt.Errorf("failed to import address: %v", err)
 	}
@@ -162,4 +165,44 @@ func (w *Wallet) DeriveAddress(idx int) (string, error) {
 func (w *Wallet) GetUTXOs() ([]btcjson.ListUnspentResult, error) {
 	// listunspent 0 9999999 []
 	return w.client.ListUnspent()
+}
+
+// importDescriptor imports a descriptor into the wallet using importdescriptors RPC
+func (w *Wallet) importDescriptor(descriptor string) error {
+	// Get the checksum for the descriptor using getdescriptorinfo
+	getDescInfoParams := []json.RawMessage{
+		json.RawMessage(fmt.Sprintf(`"%s"`, descriptor)),
+	}
+	result, err := w.client.RawRequest("getdescriptorinfo", getDescInfoParams)
+	if err != nil {
+		return fmt.Errorf("getdescriptorinfo failed: %v", err)
+	}
+
+	var descInfo struct {
+		Descriptor string `json:"descriptor"`
+	}
+	if err := json.Unmarshal(result, &descInfo); err != nil {
+		return fmt.Errorf("failed to parse descriptor info: %v", err)
+	}
+
+	// Import the descriptor with checksum
+	importReq := []map[string]interface{}{
+		{
+			"desc":      descInfo.Descriptor,
+			"timestamp": "now",
+			"watchonly": true,
+		},
+	}
+	reqJSON, err := json.Marshal(importReq)
+	if err != nil {
+		return fmt.Errorf("failed to marshal import request: %v", err)
+	}
+
+	importParams := []json.RawMessage{json.RawMessage(reqJSON)}
+	_, err = w.client.RawRequest("importdescriptors", importParams)
+	if err != nil {
+		return fmt.Errorf("importdescriptors failed: %v", err)
+	}
+
+	return nil
 }
